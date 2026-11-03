@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Facebook Zap Block
 // @namespace    fabio.facebook-zap-block
-// @version      1.6.0
+// @version      1.8.0
 // @description  Aggiunge un pulsante ⚡ accanto all'autore di ogni commento: un clic e il profilo viene bloccato in una scheda in background.
 // @match        https://www.facebook.com/*
 // @grant        GM_openInTab
@@ -21,6 +21,17 @@
 
   /** Nasconde subito dalla pagina tutti i commenti dell'autore appena bloccato. */
   const HIDE_COMMENTS_AFTER_BLOCK = true;
+
+  /** Effetto fulmine + cenere quando i commenti vengono nascosti (rispetta "riduci movimento" del sistema). */
+  const ENABLE_INCINERATION_EFFECT = true;
+
+  const LIGHTNING_FLASH_DURATION_MS = 380;
+  const CHARRING_DURATION_MS = 200;
+  const DISSOLVE_DURATION_MS = 380;
+  const COLLAPSE_DURATION_MS = 160;
+  const ASH_PARTICLE_MAX_COUNT = 140;
+  const ASH_PARTICLE_MIN_LIFETIME_MS = 500;
+  const ASH_PARTICLE_MAX_LIFETIME_MS = 900;
 
   /** Etichette (aria-label) del pulsante "…" nell'intestazione del profilo. */
   const PROFILE_OPTIONS_BUTTON_LABELS = [
@@ -57,6 +68,7 @@
   const ZAP_BUTTON_MARKER_ATTRIBUTE = 'data-zap-block-button';
   const PROCESSED_COMMENT_MARKER_ATTRIBUTE = 'data-zap-block-processed';
   const COMMENT_AUTHOR_KEY_ATTRIBUTE = 'data-zap-block-author';
+  const INCINERATED_COMMENT_MARKER_ATTRIBUTE = 'data-zap-block-incinerated';
 
   /** Profili bloccati da questa pagina: i loro commenti caricati in seguito vengono nascosti subito. */
   const profileKeysBlockedFromThisPage = new Set();
@@ -284,15 +296,221 @@
     zapButton.title = buttonTitle;
   }
 
-  function hideCommentArticle(commentArticle) {
+  // --- Effetto fulmine + cenere ---------------------------------------------
+
+  const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+  const ASH_PARTICLE_COLORS = ['#2b2b2b', '#3d3d3d', '#555555', '#6e6e6e', '#8a8a8a', '#a3a3a3'];
+  const EMBER_PARTICLE_COLORS = ['#ff7a1a', '#ffb347', '#ff4d00'];
+
+  const randomBetween = (minimumValue, maximumValue) => minimumValue + Math.random() * (maximumValue - minimumValue);
+
+  const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function isElementInViewport(element) {
+    const elementRect = element.getBoundingClientRect();
+    return elementRect.width > 0 && elementRect.height > 0
+      && elementRect.bottom > 0 && elementRect.top < window.innerHeight;
+  }
+
+  /** Livello fisso sopra la pagina: vive fuori dal DOM di Facebook, così i suoi re-render non interrompono l'effetto. */
+  function createIncinerationOverlay() {
+    const overlayLayer = document.createElement('div');
+    overlayLayer.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647;overflow:hidden;';
+    document.body.appendChild(overlayLayer);
+    return overlayLayer;
+  }
+
+  function buildJaggedBoltPoints(startX, startY, endX, endY, segmentCount) {
+    const boltLength = Math.hypot(endX - startX, endY - startY);
+    const maximumJitter = Math.min(45, (boltLength / segmentCount) * 0.8);
+    const boltPoints = [[startX, startY]];
+    for (let segmentIndex = 1; segmentIndex < segmentCount; segmentIndex += 1) {
+      const segmentProgress = segmentIndex / segmentCount;
+      boltPoints.push([
+        startX + (endX - startX) * segmentProgress + randomBetween(-maximumJitter, maximumJitter),
+        startY + (endY - startY) * segmentProgress + randomBetween(-maximumJitter, maximumJitter) * 0.3,
+      ]);
+    }
+    boltPoints.push([endX, endY]);
+    return boltPoints;
+  }
+
+  function appendBoltPolyline(lightningSvg, boltPoints, strokeWidth, strokeColor, strokeOpacity) {
+    const boltPolyline = document.createElementNS(SVG_NAMESPACE, 'polyline');
+    boltPolyline.setAttribute('points', boltPoints.map(([pointX, pointY]) => `${pointX.toFixed(1)},${pointY.toFixed(1)}`).join(' '));
+    boltPolyline.setAttribute('fill', 'none');
+    boltPolyline.setAttribute('stroke', strokeColor);
+    boltPolyline.setAttribute('stroke-width', String(strokeWidth));
+    boltPolyline.setAttribute('stroke-opacity', String(strokeOpacity));
+    boltPolyline.setAttribute('stroke-linejoin', 'round');
+    boltPolyline.setAttribute('stroke-linecap', 'round');
+    lightningSvg.appendChild(boltPolyline);
+  }
+
+  /** Fulmine dal bordo alto dello schermo fino al commento, con un ramo secondario, bagliore d'impatto e lampo. */
+  function strikeLightning(overlayLayer, targetRect) {
+    const strikePointX = targetRect.left + targetRect.width * randomBetween(0.25, 0.75);
+    const strikePointY = targetRect.top + Math.min(targetRect.height / 2, 40);
+    const boltOriginX = strikePointX + randomBetween(-80, 80);
+
+    const mainBoltPoints = buildJaggedBoltPoints(boltOriginX, -20, strikePointX, strikePointY, 14);
+    const branchStartPoint = mainBoltPoints[Math.floor(mainBoltPoints.length * randomBetween(0.4, 0.7))];
+    const branchDirection = Math.random() < 0.5 ? -1 : 1;
+    const branchPoints = buildJaggedBoltPoints(
+      branchStartPoint[0], branchStartPoint[1],
+      branchStartPoint[0] + branchDirection * randomBetween(60, 140), branchStartPoint[1] + randomBetween(60, 140),
+      6,
+    );
+
+    const lightningSvg = document.createElementNS(SVG_NAMESPACE, 'svg');
+    lightningSvg.setAttribute('width', String(window.innerWidth));
+    lightningSvg.setAttribute('height', String(window.innerHeight));
+    lightningSvg.style.cssText = 'position:absolute;left:0;top:0;overflow:visible;'
+      + 'filter:drop-shadow(0 0 4px #c8e8ff) drop-shadow(0 0 14px #4aa3ff);';
+    appendBoltPolyline(lightningSvg, mainBoltPoints, 7, '#7cc4ff', 0.55);
+    appendBoltPolyline(lightningSvg, mainBoltPoints, 2.5, '#ffffff', 1);
+    appendBoltPolyline(lightningSvg, branchPoints, 3, '#7cc4ff', 0.45);
+    appendBoltPolyline(lightningSvg, branchPoints, 1.2, '#ffffff', 0.9);
+
+    const impactGlow = document.createElement('div');
+    impactGlow.style.cssText = `position:absolute;left:${strikePointX - 70}px;top:${strikePointY - 70}px;width:140px;height:140px;`
+      + 'border-radius:50%;background:radial-gradient(circle, rgba(255,255,255,.95) 0%, rgba(140,200,255,.6) 30%, rgba(74,163,255,0) 70%);';
+
+    const screenFlash = document.createElement('div');
+    screenFlash.style.cssText = 'position:absolute;inset:0;background:#dff1ff;';
+
+    overlayLayer.append(screenFlash, lightningSvg, impactGlow);
+
+    const flickerKeyframes = [
+      { opacity: 0 }, { opacity: 1, offset: 0.05 }, { opacity: 0.2, offset: 0.3 },
+      { opacity: 1, offset: 0.45 }, { opacity: 0 },
+    ];
+    const lightningTiming = { duration: LIGHTNING_FLASH_DURATION_MS, fill: 'forwards' };
+    lightningSvg.animate(flickerKeyframes, lightningTiming);
+    impactGlow.animate([
+      { opacity: 0, transform: 'scale(.4)' }, { opacity: 1, transform: 'scale(1)', offset: 0.1 },
+      { opacity: 0, transform: 'scale(1.4)' },
+    ], lightningTiming);
+    screenFlash.animate([
+      { opacity: 0 }, { opacity: 0.22, offset: 0.06 }, { opacity: 0, offset: 0.3 },
+      { opacity: 0.12, offset: 0.45 }, { opacity: 0 },
+    ], lightningTiming);
+  }
+
+  /** Particelle di cenere (e qualche brace) che si staccano da sinistra a destra, in sincronia con la dissolvenza. */
+  function scatterAsh(overlayLayer, commentRect) {
+    const ashParticleCount = Math.min(ASH_PARTICLE_MAX_COUNT, Math.max(30, Math.round((commentRect.width * commentRect.height) / 180)));
+
+    for (let particleIndex = 0; particleIndex < ashParticleCount; particleIndex += 1) {
+      const isEmber = Math.random() < 0.15;
+      const particleSize = isEmber ? randomBetween(2, 3.5) : randomBetween(2, 5);
+      const particleOriginX = commentRect.left + Math.random() * commentRect.width;
+      const particleOriginY = commentRect.top + Math.random() * commentRect.height;
+      const particleColor = isEmber
+        ? EMBER_PARTICLE_COLORS[Math.floor(Math.random() * EMBER_PARTICLE_COLORS.length)]
+        : ASH_PARTICLE_COLORS[Math.floor(Math.random() * ASH_PARTICLE_COLORS.length)];
+
+      const ashParticle = document.createElement('div');
+      ashParticle.style.cssText = `position:absolute;left:${particleOriginX}px;top:${particleOriginY}px;`
+        + `width:${particleSize}px;height:${particleSize}px;background:${particleColor};`
+        + `border-radius:${Math.random() < 0.5 ? '50%' : '1px'};opacity:0;`
+        + (isEmber ? `box-shadow:0 0 6px 1px ${particleColor};` : '');
+      overlayLayer.appendChild(ashParticle);
+
+      const horizontalDrift = randomBetween(-25, 70);
+      const riseHeight = randomBetween(15, 60);
+      const fallDepth = isEmber ? randomBetween(-40, 0) : randomBetween(20, 90);
+      const spinDegrees = randomBetween(-360, 360);
+      const detachDelayMs = ((particleOriginX - commentRect.left) / commentRect.width) * DISSOLVE_DURATION_MS;
+
+      ashParticle.animate([
+        { opacity: 0, transform: 'translate(0, 0) rotate(0deg) scale(1)' },
+        { opacity: 1, transform: 'translate(0, 0) rotate(0deg) scale(1)', offset: 0.04 },
+        { opacity: 0.9, transform: `translate(${horizontalDrift * 0.4}px, ${-riseHeight}px) rotate(${spinDegrees * 0.4}deg) scale(.9)`, offset: 0.35 },
+        { opacity: 0, transform: `translate(${horizontalDrift}px, ${fallDepth - riseHeight * 0.3}px) rotate(${spinDegrees}deg) scale(.2)` },
+      ], {
+        duration: randomBetween(ASH_PARTICLE_MIN_LIFETIME_MS, ASH_PARTICLE_MAX_LIFETIME_MS),
+        delay: detachDelayMs,
+        easing: 'cubic-bezier(.2,.6,.4,1)',
+        fill: 'both',
+      });
+    }
+  }
+
+  async function collapseElement(element) {
+    const computedStyle = getComputedStyle(element);
+    const currentHeight = element.getBoundingClientRect().height;
+    element.style.setProperty('overflow', 'hidden', 'important');
+    await element.animate([
+      { height: `${currentHeight}px`, marginTop: computedStyle.marginTop, marginBottom: computedStyle.marginBottom },
+      { height: '0px', marginTop: '0px', marginBottom: '0px' },
+    ], { duration: COLLAPSE_DURATION_MS, easing: 'ease-in-out', fill: 'forwards' }).finished;
+  }
+
+  function hideCommentImmediately(commentArticle) {
     commentArticle.style.setProperty('display', 'none', 'important');
+  }
+
+  /** Fulmine (opzionale) → lampo e tremolio → carbonizzazione → dissolvenza in cenere → chiusura dello spazio. */
+  async function incinerateComment(commentArticle, withLightning) {
+    const overlayLayer = createIncinerationOverlay();
+    try {
+      if (withLightning) {
+        strikeLightning(overlayLayer, commentArticle.getBoundingClientRect());
+        commentArticle.animate([
+          { filter: 'brightness(1)', transform: 'translate(0, 0)' },
+          { filter: 'brightness(2.6) saturate(0)', transform: 'translate(-3px, 1px)', offset: 0.15 },
+          { filter: 'brightness(1.2)', transform: 'translate(3px, -1px)', offset: 0.35 },
+          { filter: 'brightness(2.2) saturate(0)', transform: 'translate(-2px, 0)', offset: 0.55 },
+          { filter: 'brightness(1)', transform: 'translate(0, 0)' },
+        ], { duration: LIGHTNING_FLASH_DURATION_MS });
+        await sleep(LIGHTNING_FLASH_DURATION_MS * 0.7);
+      }
+
+      await commentArticle.animate([
+        { filter: 'none' },
+        { filter: 'sepia(1) saturate(4) hue-rotate(-25deg) brightness(.9)', offset: 0.45 },
+        { filter: 'grayscale(1) brightness(.18) contrast(1.3)' },
+      ], { duration: CHARRING_DURATION_MS, fill: 'forwards' }).finished;
+
+      scatterAsh(overlayLayer, commentArticle.getBoundingClientRect());
+      await commentArticle.animate([
+        { clipPath: 'inset(0 0 0 0)' },
+        { clipPath: 'inset(0 0 0 100%)' },
+      ], { duration: DISSOLVE_DURATION_MS, easing: 'linear', fill: 'forwards' }).finished;
+
+      await collapseElement(commentArticle);
+    } finally {
+      hideCommentImmediately(commentArticle);
+      setTimeout(() => overlayLayer.remove(), ASH_PARTICLE_MAX_LIFETIME_MS);
+    }
+  }
+
+  /**
+   * Nasconde un commento una sola volta. Con animate: true e il commento visibile a schermo
+   * parte l'effetto cenere (withLightning aggiunge il fulmine); altrimenti sparisce subito.
+   */
+  function hideCommentArticle(commentArticle, { animate = false, withLightning = false } = {}) {
+    if (commentArticle.hasAttribute(INCINERATED_COMMENT_MARKER_ATTRIBUTE)) return;
+    commentArticle.setAttribute(INCINERATED_COMMENT_MARKER_ATTRIBUTE, 'true');
+
+    const shouldPlayEffect = ENABLE_INCINERATION_EFFECT && animate
+      && !prefersReducedMotion() && isElementInViewport(commentArticle);
+    if (!shouldPlayEffect) {
+      hideCommentImmediately(commentArticle);
+      return;
+    }
+
+    incinerateComment(commentArticle, withLightning).catch((effectError) => {
+      console.warn('[Zap Block] Effetto non riuscito, commento nascosto direttamente', effectError);
+    });
   }
 
   function hideAllCommentsByAuthor(profileKey) {
     let hiddenCommentCount = 0;
     document.querySelectorAll(`[role="article"][${COMMENT_AUTHOR_KEY_ATTRIBUTE}]`).forEach((commentArticle) => {
       if (commentArticle.getAttribute(COMMENT_AUTHOR_KEY_ATTRIBUTE) === profileKey) {
-        hideCommentArticle(commentArticle);
+        hideCommentArticle(commentArticle, { animate: true });
         hiddenCommentCount += 1;
       }
     });
@@ -328,11 +546,13 @@
 
       if (wasBlocked && HIDE_COMMENTS_AFTER_BLOCK) {
         profileKeysBlockedFromThisPage.add(profileKey);
-        const hiddenCommentCount = hideAllCommentsByAuthor(profileKey);
 
-        // Ripiego: il commento su cui si è cliccato, anche se l'attributo dell'autore si è perso in un re-render.
+        // Il commento su cui si è cliccato va per primo, così è lui a prendersi il fulmine.
+        // Fa anche da ripiego se l'attributo dell'autore si è perso in un re-render.
         const clickedCommentArticle = zapButton.closest('[role="article"]');
-        if (clickedCommentArticle) hideCommentArticle(clickedCommentArticle);
+        if (clickedCommentArticle) hideCommentArticle(clickedCommentArticle, { animate: true, withLightning: true });
+
+        const hiddenCommentCount = hideAllCommentsByAuthor(profileKey);
 
         console.info(`[Zap Block] Nascosti ${hiddenCommentCount} commenti di ${profileKey}`, clickedCommentArticle ? '' : '(commento cliccato non più nel DOM)');
       }
