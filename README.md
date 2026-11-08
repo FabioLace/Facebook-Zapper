@@ -8,6 +8,7 @@
 </div>
 
 Uno userscript che aggiunge un pulsante ⚡ accanto all'autore di ogni commento su Facebook: un clic e il profilo viene bloccato in una scheda in background, senza lasciare la pagina che stai leggendo. Pensato per chi vuole tenere pulito il proprio feed senza ripetere ogni volta la trafila di cinque clic.
+
 🇮🇹 Pensato per l’interfaccia italiana, compatibile anche con quella inglese 🇬🇧
 
 ## Funzionalità
