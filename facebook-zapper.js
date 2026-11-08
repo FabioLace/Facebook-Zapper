@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name         Facebook Zap Block
-// @namespace    fabio.facebook-zap-block
+// @name         Facebook Zapper
+// @namespace    fabio.facebook-zapper
 // @version      1.8.0
 // @description  Aggiunge un pulsante ⚡ accanto all'autore di ogni commento: un clic e il profilo viene bloccato in una scheda in background.
 // @match        https://www.facebook.com/*
