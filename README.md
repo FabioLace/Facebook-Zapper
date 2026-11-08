@@ -1,5 +1,5 @@
 <div align="center">
-  <h1>Facebook Zap Block</h1>
+  <h1>Facebook Zapper</h1>
   <p>
     <img src="https://img.shields.io/badge/Facebook-Web-1877F2?style=flat&logo=facebook&logoColor=white" alt="Facebook" />
     <img src="https://img.shields.io/badge/Tampermonkey-Userscript_1.8.0-00485B?style=flat&logo=tampermonkey&logoColor=white" alt="Tampermonkey" />
@@ -7,111 +7,112 @@
   </p>
 </div>
 
-A userscript that adds a ⚡ button next to the author of every Facebook comment: one click and the profile is blocked in a background tab, without leaving the page you are reading. Built for anyone who moderates their own feed and is tired of the five-click block flow.
+Uno userscript che aggiunge un pulsante ⚡ accanto all'autore di ogni commento su Facebook: un clic e il profilo viene bloccato in una scheda in background, senza lasciare la pagina che stai leggendo. Pensato per chi vuole tenere pulito il proprio feed senza ripetere ogni volta la trafila di cinque clic.
+🇮🇹 Pensato per l’interfaccia italiana, compatibile anche con quella inglese 🇬🇧
 
-## Features
+## Funzionalità
 
-- **One-click block** – a ⚡ button is injected right after the author's name in every comment and reply.
-- **Background automation** – the author's profile opens in a background tab, where the script clicks "…" → "Block" → "Confirm" on its own and then closes the tab.
-- **Live status on the button** – ⚡ idle, ⏳ in progress, ✅ blocked, ⚠️ failed (on failure the tab stays open so you can check what happened).
-- **Optional confirmation** – a `confirm()` dialog before every block to avoid accidental zaps.
-- **Hides the blocked author's comments** – all comments by that author on the current page disappear immediately, including those loaded later while you scroll.
-- **Lightning + ash effect** – the clicked comment gets struck by lightning, chars, dissolves into ash and collapses. It respects the system "reduce motion" setting and only plays for comments visible on screen.
-- **Bilingual** – recognises the Facebook UI in Italian and English.
-- **Robust profile detection** – handles vanity URLs, `profile.php?id=…` and group member links (`/groups/…/user/…`), and skips non-profile paths (pages, groups, events, photos, reels…).
-- **Built-in diagnostics** – when a block fails, the background tab logs the buttons, menu items and dialog buttons it found, to make selector fixes easy.
+- **Blocco con un clic** – un pulsante ⚡ viene inserito subito dopo il nome dell'autore in ogni commento e risposta.
+- **Automazione in background** – il profilo dell'autore si apre in una scheda non attiva, dove lo script clicca da solo "…" → "Blocca" → "Conferma" e poi chiude la scheda.
+- **Stato in tempo reale sul pulsante** – ⚡ pronto, ⏳ in corso, ✅ bloccato, ⚠️ non riuscito (in caso di errore la scheda resta aperta per controllare cosa è successo).
+- **Conferma opzionale** – un dialog `confirm()` prima di ogni blocco, per evitare zap accidentali.
+- **Nasconde i commenti dell'autore bloccato** – tutti i suoi commenti nella pagina spariscono subito, compresi quelli caricati in seguito scorrendo.
+- **Effetto fulmine + cenere** – il commento cliccato viene colpito da un fulmine, si carbonizza, si dissolve in cenere e si richiude. Rispetta l'impostazione di sistema "riduci movimento" e parte solo per i commenti visibili a schermo.
+- **Bilingue** – riconosce l'interfaccia di Facebook in italiano e in inglese.
+- **Riconoscimento robusto dei profili** – gestisce gli URL personalizzati, `profile.php?id=…` e i link ai membri dei gruppi (`/groups/…/user/…`), ed esclude i percorsi che non sono profili (pagine, gruppi, eventi, foto, reel…).
+- **Diagnostica integrata** – quando un blocco fallisce, la scheda in background scrive in console i pulsanti, le voci di menu e i pulsanti dei dialog trovati, così è facile aggiornare i selettori.
 
-## Tech Stack
+## Stack tecnologico
 
-- Plain JavaScript (ES2019+), no dependencies and no build step
-- Userscript manager APIs: `GM_openInTab`, `GM_setValue`, `GM_deleteValue`, `GM_addValueChangeListener`
-- Web Animations API for the incineration effect, inline SVG for the lightning bolt
-- `MutationObserver` + `requestAnimationFrame` to process comments loaded dynamically
+- JavaScript puro (ES2019+), nessuna dipendenza e nessuna fase di build
+- API del gestore di userscript: `GM_openInTab`, `GM_setValue`, `GM_deleteValue`, `GM_addValueChangeListener`
+- Web Animations API per l'effetto di incenerimento, SVG inline per il fulmine
+- `MutationObserver` + `requestAnimationFrame` per elaborare i commenti caricati dinamicamente
 
-## Requirements
+## Requisiti
 
-- A desktop browser (Chrome, Edge, Firefox, Brave…)
-- A userscript manager that supports the `GM_*` APIs above, e.g. **Tampermonkey** or **Violentmonkey**
-  (Greasemonkey 4 is not supported: it only exposes the asynchronous `GM.*` API and has no `GM_addValueChangeListener`)
-- Being logged in to `https://www.facebook.com`
+- Un browser desktop (Chrome, Edge, Firefox, Brave…)
+- Un gestore di userscript che supporti le API `GM_*` indicate sopra, ad esempio **Tampermonkey** o **Violentmonkey**
+  (Greasemonkey 4 non è supportato: espone solo le API asincrone `GM.*` e non ha `GM_addValueChangeListener`)
+- Essere loggati su `https://www.facebook.com`
 
-## Installation
+## Installazione
 
-1. Install Tampermonkey or Violentmonkey in your browser.
-2. Create a new userscript in the manager's dashboard.
-3. Paste the full content of the script (save it as e.g. `facebook-zap-block.user.js`) and save.
-4. Make sure the script is enabled, then reload any Facebook page.
-5. In Chromium-based browsers with Tampermonkey, you may need to enable "Allow user scripts" / Developer mode for the extension.
+1. Installa Tampermonkey o Violentmonkey nel browser.
+2. Crea un nuovo userscript dalla dashboard del gestore.
+3. Incolla l'intero contenuto dello script (salvandolo ad esempio come `facebook-zap-block.user.js`) e salva.
+4. Verifica che lo script sia attivo, poi ricarica una qualsiasi pagina di Facebook.
+5. Nei browser basati su Chromium con Tampermonkey potrebbe essere necessario attivare "Consenti script utente" / la modalità sviluppatore per l'estensione.
 
-## Configuration
+## Configurazione
 
-There is no `.env` file: options are constants at the top of the script, in the `Configurazione` section.
+Non c'è un file `.env`: le opzioni sono costanti in cima allo script, nella sezione `Configurazione`.
 
-| Constant | Default | Description |
+| Costante | Default | Descrizione |
 | --- | --- | --- |
-| `REQUIRE_CONFIRMATION_BEFORE_BLOCK` | `true` | Ask for confirmation before blocking. |
-| `HIDE_COMMENTS_AFTER_BLOCK` | `true` | Hide all comments of the blocked author from the current page. |
-| `ENABLE_INCINERATION_EFFECT` | `true` | Play the lightning + ash animation when hiding comments. |
-| `LIGHTNING_FLASH_DURATION_MS` | `380` | Duration of the lightning flash. |
-| `CHARRING_DURATION_MS` | `200` | Duration of the charring phase. |
-| `DISSOLVE_DURATION_MS` | `380` | Duration of the dissolve-into-ash phase. |
-| `COLLAPSE_DURATION_MS` | `160` | Duration of the final collapse of the comment's space. |
-| `ASH_PARTICLE_MAX_COUNT` | `140` | Maximum number of ash particles per comment. |
-| `ASH_PARTICLE_MIN_LIFETIME_MS` / `ASH_PARTICLE_MAX_LIFETIME_MS` | `500` / `900` | Lifetime range of each ash particle. |
-| `ELEMENT_WAIT_TIMEOUT_MS` | `15000` | Max wait for each element in the block flow. |
-| `EXACT_LABEL_WAIT_TIMEOUT_MS` | `10000` | Max wait for the exactly-labelled "…" button before using the fallbacks. |
-| `ELEMENT_POLL_INTERVAL_MS` | `300` | Polling interval while waiting for elements. |
-| `PAUSE_AFTER_CONFIRM_MS` | `2000` | Delay before closing the background tab after a successful block. |
+| `REQUIRE_CONFIRMATION_BEFORE_BLOCK` | `true` | Chiede conferma prima di bloccare. |
+| `HIDE_COMMENTS_AFTER_BLOCK` | `true` | Nasconde dalla pagina tutti i commenti dell'autore bloccato. |
+| `ENABLE_INCINERATION_EFFECT` | `true` | Riproduce l'animazione fulmine + cenere quando i commenti vengono nascosti. |
+| `LIGHTNING_FLASH_DURATION_MS` | `380` | Durata del lampo del fulmine. |
+| `CHARRING_DURATION_MS` | `200` | Durata della fase di carbonizzazione. |
+| `DISSOLVE_DURATION_MS` | `380` | Durata della dissolvenza in cenere. |
+| `COLLAPSE_DURATION_MS` | `160` | Durata della chiusura finale dello spazio del commento. |
+| `ASH_PARTICLE_MAX_COUNT` | `140` | Numero massimo di particelle di cenere per commento. |
+| `ASH_PARTICLE_MIN_LIFETIME_MS` / `ASH_PARTICLE_MAX_LIFETIME_MS` | `500` / `900` | Intervallo di durata di ogni particella. |
+| `ELEMENT_WAIT_TIMEOUT_MS` | `15000` | Attesa massima per ogni elemento del flusso di blocco. |
+| `EXACT_LABEL_WAIT_TIMEOUT_MS` | `10000` | Attesa massima del pulsante "…" con etichetta esatta prima di passare ai ripieghi. |
+| `ELEMENT_POLL_INTERVAL_MS` | `300` | Intervallo di polling durante l'attesa degli elementi. |
+| `PAUSE_AFTER_CONFIRM_MS` | `2000` | Pausa prima di chiudere la scheda in background dopo un blocco riuscito. |
 
-UI strings used to find Facebook's elements can be extended for other languages:
+I testi usati per trovare gli elementi di Facebook si possono estendere ad altre lingue:
 
-- `PROFILE_OPTIONS_BUTTON_LABELS` / `PROFILE_OPTIONS_PARTIAL_LABELS` – aria-labels of the "…" button in the profile header
-- `BLOCK_MENU_ITEM_TEXTS` – text of the "Block" menu item
-- `CONFIRM_BLOCK_BUTTON_TEXTS` – text of the confirm button in the block dialog
-- `COMMENT_ARIA_LABEL_PREFIXES` – aria-label prefixes that identify comments and replies
-- `NON_PROFILE_PATH_SEGMENTS` – first URL segments that are never profiles
+- `PROFILE_OPTIONS_BUTTON_LABELS` / `PROFILE_OPTIONS_PARTIAL_LABELS` – aria-label del pulsante "…" nell'intestazione del profilo
+- `BLOCK_MENU_ITEM_TEXTS` – testo della voce di menu "Blocca"
+- `CONFIRM_BLOCK_BUTTON_TEXTS` – testo del pulsante di conferma nel dialog di blocco
+- `COMMENT_ARIA_LABEL_PREFIXES` – prefissi dell'aria-label che identificano commenti e risposte
+- `NON_PROFILE_PATH_SEGMENTS` – primi segmenti di URL che non sono mai profili
 
-## Available Scripts
+## Script disponibili
 
-None. The project is a single self-contained userscript: there is no package manager, build or test command.
+Nessuno. Il progetto è un unico userscript autosufficiente: non ci sono package manager, comandi di build o di test.
 
-## Testing
+## Test
 
-There are no automated tests. To verify the script manually:
+Non ci sono test automatici. Per verificare lo script a mano:
 
-1. Open a post with comments and check that a ⚡ appears next to each author.
-2. Zap a test profile and watch the button go from ⏳ to ✅ (or ⚠️).
-3. Open the browser DevTools console and filter by `[Zap Block]`:
-   - in the original tab you'll see how many comments were hidden;
-   - in the background profile tab (left open on failure) you'll see the step that failed and a table of the buttons, menu items and dialog buttons found, useful to update the label constants when Facebook changes its markup.
+1. Apri un post con dei commenti e controlla che accanto a ogni autore compaia un ⚡.
+2. Esegui lo zap su un profilo di prova e osserva il pulsante passare da ⏳ a ✅ (o ⚠️).
+3. Apri la console dei DevTools e filtra per `[Zap Block]`:
+   - nella scheda di origine vedrai quanti commenti sono stati nascosti;
+   - nella scheda del profilo in background (che resta aperta in caso di errore) vedrai il passaggio fallito e una tabella con i pulsanti, le voci di menu e i pulsanti dei dialog trovati, utile per aggiornare le costanti delle etichette quando Facebook cambia il markup.
 
-## Project Structure
+## Struttura del progetto
 
 ```text
 .
-└── facebook-zap-block.user.js   # The whole userscript
+└── facebook-zap-block.user.js   # L'intero userscript
 ```
 
-Internally the script is organised in sections:
+Internamente lo script è diviso in sezioni:
 
-| Section | Responsibility |
+| Sezione | Responsabilità |
 | --- | --- |
-| `Configurazione` | Feature flags, timings, UI labels, storage keys and marker attributes. |
-| `Utility` | Waiting helpers, text normalisation, profile key/URL conversion (`id:…` / `user:…`). |
-| `Scheda del profilo` | Runs in the background tab: finds "…" → "Block" → "Confirm" and writes the result to GM storage. |
-| `Pagine con commenti` | Detects comments, injects the ⚡ button, opens the background tab and listens for the result. |
-| `Effetto fulmine + cenere` | Overlay, lightning bolt, charring, ash particles and collapse animation. |
-| `Avvio` | Chooses the mode from the initial URL: auto-block if it contains `#zap-block=…`, otherwise watch for comments. |
+| `Configurazione` | Flag delle funzionalità, tempi, etichette dell'interfaccia, chiavi di storage e attributi marcatori. |
+| `Utility` | Funzioni di attesa, normalizzazione del testo, conversione profilo ↔ chiave/URL (`id:…` / `user:…`). |
+| `Scheda del profilo` | Gira nella scheda in background: trova "…" → "Blocca" → "Conferma" e scrive l'esito nello storage GM. |
+| `Pagine con commenti` | Riconosce i commenti, inserisce il pulsante ⚡, apre la scheda in background e attende l'esito. |
+| `Effetto fulmine + cenere` | Overlay, fulmine, carbonizzazione, particelle di cenere e animazione di chiusura. |
+| `Avvio` | Sceglie la modalità dall'URL iniziale: blocco automatico se contiene `#zap-block=…`, altrimenti osserva i commenti. |
 
-### How it works
+### Come funziona
 
-1. Clicking ⚡ opens `https://www.facebook.com/<profile>#zap-block=<profileKey>` in an inactive tab.
-2. The script, running at `document-start` in that tab, reads the hash before Facebook rewrites the URL and starts the block flow.
-3. The outcome (`blocked` / `failed`) is saved with `GM_setValue` under `zapBlockResult:<profileKey>`.
-4. The original tab, subscribed with `GM_addValueChangeListener`, updates the button, hides the author's comments and closes the background tab after `PAUSE_AFTER_CONFIRM_MS`.
+1. Il clic su ⚡ apre `https://www.facebook.com/<profilo>#zap-block=<chiaveProfilo>` in una scheda non attiva.
+2. Lo script, eseguito a `document-start` in quella scheda, legge l'hash prima che Facebook riscriva l'URL e avvia il flusso di blocco.
+3. L'esito (`blocked` / `failed`) viene salvato con `GM_setValue` nella chiave `zapBlockResult:<chiaveProfilo>`.
+4. La scheda di origine, in ascolto con `GM_addValueChangeListener`, aggiorna il pulsante, nasconde i commenti dell'autore e chiude la scheda in background dopo `PAUSE_AFTER_CONFIRM_MS`.
 
-## Deployment
+## Distribuzione
 
-To release a new version, bump `@version` in the userscript metadata block and update the script in your userscript manager. If you host the file somewhere public (e.g. a GitHub repo or Greasy Fork), you can add `@updateURL` / `@downloadURL` to the metadata so the manager picks up updates automatically.
+Per rilasciare una nuova versione, incrementa `@version` nel blocco di metadati dello userscript e aggiorna lo script nel gestore. Se pubblichi il file da qualche parte (ad esempio un repository GitHub o Greasy Fork), puoi aggiungere `@updateURL` / `@downloadURL` ai metadati, così il gestore rileva gli aggiornamenti in automatico.
 
-> **Note:** the script depends on Facebook's markup and aria-labels, which change often. When blocking starts failing, check the diagnostics in the background tab's console and update the label constants accordingly.
+> **Nota:** lo script dipende dal markup e dalle aria-label di Facebook, che cambiano spesso. Quando il blocco inizia a fallire, controlla la diagnostica nella console della scheda in background e aggiorna di conseguenza le costanti delle etichette.
