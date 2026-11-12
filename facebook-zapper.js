@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Facebook Zapper
-// @namespace    fabio.facebook-zapper
-// @version      1.8.0
-// @description  Aggiunge un pulsante ⚡ accanto all'autore di ogni commento: un clic e il profilo viene bloccato in una scheda in background.
+// @namespace    fabio.facebook-zap-block
+// @version      1.11.0
+// @description  Aggiunge un pulsante ⚡ accanto all'autore di ogni commento e di ogni post (feed e ricerche): un clic e il profilo viene bloccato in una scheda in background.
 // @match        https://www.facebook.com/*
 // @grant        GM_openInTab
 // @grant        GM_setValue
@@ -51,11 +51,40 @@
   /** Prefissi dell'aria-label dei commenti, usati per riconoscerli nel DOM. */
   const COMMENT_ARIA_LABEL_PREFIXES = ['Commento di', 'Risposta di', 'Comment by', 'Reply by'];
 
+  /**
+   * Prefissi dell'aria-label del pulsante "…" dei post ("Azioni per questo post di Mario Rossi"):
+   * come per i commenti, dopo il prefisso c'è il nome dell'autore. C'è sia nel feed sia nelle ricerche.
+   */
+  const POST_ACTIONS_ARIA_LABEL_PREFIXES = ['Azioni per questo post di', 'Actions for this post by', 'Actions for this post from'];
+
+  /** Dove smettere di risalire dal "…" cercando il link con il nome dell'autore. */
+  const POST_AUTHOR_SEARCH_STOP_SELECTOR = '[role="feed"], [role="main"], body';
+
+  /** Contenitori dei post: unità del feed (aria-posinset) e risultati di ricerca (role="article" che non sono commenti). */
+  const POST_CONTAINER_SELECTOR = '[aria-posinset], [role="article"]';
+
+  /** Nome dell'autore nell'intestazione del post: è il riferimento più affidabile quando Facebook lo marca. */
+  const POST_PROFILE_NAME_LINK_SELECTOR = '[data-ad-rendering-role="profile_name"] a[href]';
+
+  /** Ripiego: link dell'intestazione (titoli, grassetti, autori dei gruppi), valutati in ordine di documento. */
+  const POST_HEADER_FALLBACK_LINK_SELECTOR = [
+    'h2 a[href]', 'h3 a[href]', 'h4 a[href]', 'strong a[href]', 'a[href*="/groups/"][href*="/user/"]',
+  ].join(', ');
+
+  /** Corpo del post: i link qui dentro sono menzioni o link nel testo, non l'autore. */
+  const POST_MESSAGE_BODY_SELECTOR = [
+    '[data-ad-preview="message"]', '[data-ad-comet-preview="message"]', '[data-ad-rendering-role="story_message"]',
+  ].join(', ');
+
+  const COMMENT_ZAP_BUTTON_FONT_SIZE_PX = 12;
+  const POST_ZAP_BUTTON_FONT_SIZE_PX = 14;
+
   /** Primi segmenti di URL che non sono profili. */
   const NON_PROFILE_PATH_SEGMENTS = new Set([
     'groups', 'pages', 'events', 'watch', 'photo', 'photo.php', 'photos', 'videos', 'reel', 'reels',
     'hashtag', 'stories', 'story.php', 'permalink.php', 'marketplace', 'gaming', 'notifications',
     'messages', 'settings', 'help', 'login', 'friends', 'bookmarks', 'saved', 'search', 'share',
+    'l.php',
   ]);
 
   const ELEMENT_WAIT_TIMEOUT_MS = 15000;
@@ -69,6 +98,9 @@
   const PROCESSED_COMMENT_MARKER_ATTRIBUTE = 'data-zap-block-processed';
   const COMMENT_AUTHOR_KEY_ATTRIBUTE = 'data-zap-block-author';
   const INCINERATED_COMMENT_MARKER_ATTRIBUTE = 'data-zap-block-incinerated';
+  const POST_ZAP_BUTTON_MARKER_ATTRIBUTE = 'data-zap-block-post-button';
+  const PROCESSED_POST_ACTIONS_MARKER_ATTRIBUTE = 'data-zap-block-post-processed';
+  const POST_AUTHOR_KEY_ATTRIBUTE = 'data-zap-block-post-author';
 
   /** Profili bloccati da questa pagina: i loro commenti caricati in seguito vengono nascosti subito. */
   const profileKeysBlockedFromThisPage = new Set();
@@ -291,6 +323,81 @@
       && buildProfileKey(candidateLink.href) !== null);
   }
 
+  // --- Post (feed e ricerche): individuazione dell'autore --------------------
+
+  /**
+   * Un post va processato solo se è il contenitore più esterno: così un role="article"
+   * dentro un'unità del feed, o un post condiviso dentro un altro, non riceve un secondo pulsante.
+   */
+  function isTopLevelPostContainer(candidateElement) {
+    if (candidateElement.getAttribute('role') === 'article' && isCommentArticle(candidateElement)) return false;
+    return !candidateElement.parentElement?.closest(POST_CONTAINER_SELECTOR);
+  }
+
+  function isInsideCommentArticle(candidateElement) {
+    const closestArticle = candidateElement.closest('[role="article"]');
+    return closestArticle !== null && isCommentArticle(closestArticle);
+  }
+
+  function isValidPostAuthorLink(candidateLink) {
+    return !isInsideCommentArticle(candidateLink)
+      && !candidateLink.closest(POST_MESSAGE_BODY_SELECTOR)
+      && normalizeVisibleText(candidateLink) !== ''
+      && buildProfileKey(candidateLink.href) !== null;
+  }
+
+  /**
+   * Prima il nome marcato da Facebook come "profile_name"; altrimenti il primo link valido dell'intestazione.
+   * I link ai gruppi vengono scartati da buildProfileKey, quindi nei post di gruppo vince l'autore.
+   */
+  function findPostAuthorLink(postContainer) {
+    const profileNameLink = [...postContainer.querySelectorAll(POST_PROFILE_NAME_LINK_SELECTOR)].find(isValidPostAuthorLink);
+    if (profileNameLink) return profileNameLink;
+    return [...postContainer.querySelectorAll(POST_HEADER_FALLBACK_LINK_SELECTOR)].find(isValidPostAuthorLink) || null;
+  }
+
+  /** Selettore dei pulsanti "…" dei post non ancora processati, costruito dai prefissi dell'etichetta. */
+  const UNPROCESSED_POST_ACTIONS_BUTTON_SELECTOR = POST_ACTIONS_ARIA_LABEL_PREFIXES
+    .map((labelPrefix) => `[aria-label^="${labelPrefix} "]:not([${PROCESSED_POST_ACTIONS_MARKER_ATTRIBUTE}])`)
+    .join(', ');
+
+  /** Nome dell'autore letto dall'etichetta del "…", come per i commenti si legge da "Commento di …". */
+  function extractAuthorNameFromPostActionsButton(actionsButton) {
+    const actionsLabel = (actionsButton.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim();
+    const matchingLabelPrefix = POST_ACTIONS_ARIA_LABEL_PREFIXES.find((labelPrefix) => actionsLabel.startsWith(`${labelPrefix} `));
+    return matchingLabelPrefix ? actionsLabel.slice(matchingLabelPrefix.length).trim() : '';
+  }
+
+  /**
+   * Risale dal "…" fino al primo antenato che contiene un link il cui testo è esattamente il nome
+   * dell'autore: è il link del nome nell'intestazione, non un "è con …" o una menzione.
+   */
+  function findPostAuthorLinkByName(actionsButton, authorName) {
+    let headerAncestor = actionsButton.parentElement;
+    while (headerAncestor && !headerAncestor.matches(POST_AUTHOR_SEARCH_STOP_SELECTOR)) {
+      const authorLinkWithMatchingName = [...headerAncestor.querySelectorAll('a[href]')].find((candidateLink) =>
+        normalizeVisibleText(candidateLink) === authorName && isValidPostAuthorLink(candidateLink));
+      if (authorLinkWithMatchingName) return authorLinkWithMatchingName;
+      headerAncestor = headerAncestor.parentElement;
+    }
+    return null;
+  }
+
+  /**
+   * Il post da nascondere: l'unità marcata del feed se c'è, altrimenti il figlio diretto di role="feed"
+   * (i risultati di ricerca non hanno né role="article" né aria-posinset).
+   */
+  function resolvePostContainer(postElement) {
+    const markedFeedUnit = postElement.closest('[aria-posinset]');
+    if (markedFeedUnit) return markedFeedUnit;
+
+    let feedChild = postElement;
+    while (feedChild.parentElement && !feedChild.parentElement.matches('[role="feed"]')) {
+      feedChild = feedChild.parentElement;
+    }
+    return feedChild.parentElement ? feedChild : null;
+  }
+
   function updateZapButtonState(zapButton, buttonSymbol, buttonTitle) {
     zapButton.textContent = buttonSymbol;
     zapButton.title = buttonTitle;
@@ -487,11 +594,13 @@
   }
 
   /**
-   * Nasconde un commento una sola volta. Con animate: true e il commento visibile a schermo
+   * Nasconde un commento o un post una sola volta. Con animate: true e l'elemento visibile a schermo
    * parte l'effetto cenere (withLightning aggiunge il fulmine); altrimenti sparisce subito.
+   * Gli elementi dentro un contenitore già nascosto vengono saltati: spariscono insieme a lui.
    */
-  function hideCommentArticle(commentArticle, { animate = false, withLightning = false } = {}) {
+  function hideCommentOrPost(commentArticle, { animate = false, withLightning = false } = {}) {
     if (commentArticle.hasAttribute(INCINERATED_COMMENT_MARKER_ATTRIBUTE)) return;
+    if (commentArticle.parentElement?.closest(`[${INCINERATED_COMMENT_MARKER_ATTRIBUTE}]`)) return;
     commentArticle.setAttribute(INCINERATED_COMMENT_MARKER_ATTRIBUTE, 'true');
 
     const shouldPlayEffect = ENABLE_INCINERATION_EFFECT && animate
@@ -510,11 +619,22 @@
     let hiddenCommentCount = 0;
     document.querySelectorAll(`[role="article"][${COMMENT_AUTHOR_KEY_ATTRIBUTE}]`).forEach((commentArticle) => {
       if (commentArticle.getAttribute(COMMENT_AUTHOR_KEY_ATTRIBUTE) === profileKey) {
-        hideCommentArticle(commentArticle, { animate: true });
+        hideCommentOrPost(commentArticle, { animate: true });
         hiddenCommentCount += 1;
       }
     });
     return hiddenCommentCount;
+  }
+
+  function hideAllPostsByAuthor(profileKey) {
+    let hiddenPostCount = 0;
+    document.querySelectorAll(`[${POST_AUTHOR_KEY_ATTRIBUTE}]`).forEach((postContainer) => {
+      if (postContainer.getAttribute(POST_AUTHOR_KEY_ATTRIBUTE) === profileKey) {
+        hideCommentOrPost(postContainer, { animate: true });
+        hiddenPostCount += 1;
+      }
+    });
+    return hiddenPostCount;
   }
 
   function handleZapButtonClick(clickEvent, zapButton, profileKey, authorName) {
@@ -547,14 +667,17 @@
       if (wasBlocked && HIDE_COMMENTS_AFTER_BLOCK) {
         profileKeysBlockedFromThisPage.add(profileKey);
 
-        // Il commento su cui si è cliccato va per primo, così è lui a prendersi il fulmine.
+        // Il commento o post su cui si è cliccato va per primo, così è lui a prendersi il fulmine.
         // Fa anche da ripiego se l'attributo dell'autore si è perso in un re-render.
-        const clickedCommentArticle = zapButton.closest('[role="article"]');
-        if (clickedCommentArticle) hideCommentArticle(clickedCommentArticle, { animate: true, withLightning: true });
+        // Il più vicino tra i due attributi è il contenitore giusto: un commento dentro un post vince sul post.
+        const clickedContentContainer = zapButton.closest(`[${COMMENT_AUTHOR_KEY_ATTRIBUTE}], [${POST_AUTHOR_KEY_ATTRIBUTE}]`);
+        if (clickedContentContainer) hideCommentOrPost(clickedContentContainer, { animate: true, withLightning: true });
 
+        // Prima i post, così i commenti dentro un post appena nascosto vengono saltati.
+        const hiddenPostCount = hideAllPostsByAuthor(profileKey);
         const hiddenCommentCount = hideAllCommentsByAuthor(profileKey);
 
-        console.info(`[Zap Block] Nascosti ${hiddenCommentCount} commenti di ${profileKey}`, clickedCommentArticle ? '' : '(commento cliccato non più nel DOM)');
+        console.info(`[Zap Block] Nascosti ${hiddenPostCount} post e ${hiddenCommentCount} commenti di ${profileKey}`, clickedContentContainer ? '' : '(elemento cliccato non più nel DOM)');
       }
 
       // Lascia alla scheda del profilo il tempo di completare la richiesta di blocco prima di chiuderla.
@@ -574,18 +697,43 @@
 
     commentArticle.setAttribute(COMMENT_AUTHOR_KEY_ATTRIBUTE, profileKey);
     if (profileKeysBlockedFromThisPage.has(profileKey)) {
-      hideCommentArticle(commentArticle);
+      hideCommentOrPost(commentArticle);
       return;
     }
 
+    const zapButton = createZapButton(profileKey, authorName, ZAP_BUTTON_MARKER_ATTRIBUTE, COMMENT_ZAP_BUTTON_FONT_SIZE_PX);
+    commentAuthorLink.insertAdjacentElement('afterend', zapButton);
+  }
+
+  function createZapButton(profileKey, authorName, buttonMarkerAttribute, fontSizePx) {
     const zapButton = document.createElement('button');
     zapButton.type = 'button';
-    zapButton.setAttribute(ZAP_BUTTON_MARKER_ATTRIBUTE, 'true');
-    zapButton.style.cssText = 'margin-left:6px;padding:0 4px;border:none;background:none;cursor:pointer;font-size:12px;line-height:1;opacity:.7;';
+    zapButton.setAttribute(buttonMarkerAttribute, 'true');
+    zapButton.style.cssText = `margin-left:6px;padding:0 4px;border:none;background:none;cursor:pointer;font-size:${fontSizePx}px;line-height:1;opacity:.7;`;
     updateZapButtonState(zapButton, '⚡', `Blocca ${authorName}`);
     zapButton.addEventListener('click', (clickEvent) => handleZapButtonClick(clickEvent, zapButton, profileKey, authorName));
+    return zapButton;
+  }
 
-    commentAuthorLink.insertAdjacentElement('afterend', zapButton);
+  /**
+   * Il post non viene marcato come processato finché il pulsante non c'è: le unità del feed
+   * compaiono prima come scheletri vuoti e l'intestazione arriva dopo. Se Facebook rigenera
+   * l'intestazione e il pulsante sparisce, alla scansione successiva viene rimesso.
+   */
+  function addZapButtonToPost(postContainer, postAuthorLink = findPostAuthorLink(postContainer)) {
+    if (!postAuthorLink) return;
+
+    const profileKey = buildProfileKey(postAuthorLink.href);
+    const authorName = normalizeVisibleText(postAuthorLink);
+
+    postContainer.setAttribute(POST_AUTHOR_KEY_ATTRIBUTE, profileKey);
+    if (profileKeysBlockedFromThisPage.has(profileKey)) {
+      hideCommentOrPost(postContainer);
+      return;
+    }
+
+    const zapButton = createZapButton(profileKey, authorName, POST_ZAP_BUTTON_MARKER_ATTRIBUTE, POST_ZAP_BUTTON_FONT_SIZE_PX);
+    postAuthorLink.insertAdjacentElement('afterend', zapButton);
   }
 
   function scanForUnprocessedComments() {
@@ -595,19 +743,60 @@
     });
   }
 
-  function startWatchingForComments() {
+  /**
+   * Stesso schema dei commenti: etichetta con il nome → link dell'autore → pulsante ⚡ subito dopo.
+   * Il "…" viene marcato solo quando il link è stato trovato, perché l'intestazione può arrivare dopo.
+   */
+  function addZapButtonToPostFromActionsButton(actionsButton) {
+    const authorName = extractAuthorNameFromPostActionsButton(actionsButton);
+    if (!authorName) return;
+
+    const postAuthorLink = findPostAuthorLinkByName(actionsButton, authorName);
+    if (!postAuthorLink) return;
+    actionsButton.setAttribute(PROCESSED_POST_ACTIONS_MARKER_ATTRIBUTE, 'true');
+
+    const postContainer = resolvePostContainer(actionsButton) || postAuthorLink.parentElement;
+    if (postContainer.closest(`[${INCINERATED_COMMENT_MARKER_ATTRIBUTE}]`)) return;
+    if (postContainer.querySelector(`[${POST_ZAP_BUTTON_MARKER_ATTRIBUTE}]`)) return;
+
+    addZapButtonToPost(postContainer, postAuthorLink);
+  }
+
+  function scanForUnprocessedPostActionsButtons() {
+    document.querySelectorAll(UNPROCESSED_POST_ACTIONS_BUTTON_SELECTOR).forEach((actionsButton) => {
+      if (!isInsideCommentArticle(actionsButton)) addZapButtonToPostFromActionsButton(actionsButton);
+    });
+  }
+
+  /** Ripiego per i post senza il pulsante "…" riconosciuto (es. lingua diversa). */
+  function scanForPostsWithoutZapButton() {
+    document.querySelectorAll(POST_CONTAINER_SELECTOR).forEach((candidateElement) => {
+      if (candidateElement.hasAttribute(INCINERATED_COMMENT_MARKER_ATTRIBUTE)) return;
+      if (!isTopLevelPostContainer(candidateElement)) return;
+      if (candidateElement.querySelector(`[${POST_ZAP_BUTTON_MARKER_ATTRIBUTE}]`)) return;
+      addZapButtonToPost(candidateElement);
+    });
+  }
+
+  function scanForCommentsAndPosts() {
+    scanForUnprocessedComments();
+    scanForUnprocessedPostActionsButtons();
+    scanForPostsWithoutZapButton();
+  }
+
+  function startWatchingForCommentsAndPosts() {
     let isScanScheduled = false;
-    const scheduleCommentScan = () => {
+    const scheduleContentScan = () => {
       if (isScanScheduled) return;
       isScanScheduled = true;
       requestAnimationFrame(() => {
         isScanScheduled = false;
-        scanForUnprocessedComments();
+        scanForCommentsAndPosts();
       });
     };
 
-    new MutationObserver(scheduleCommentScan).observe(document.body, { childList: true, subtree: true });
-    scanForUnprocessedComments();
+    new MutationObserver(scheduleContentScan).observe(document.body, { childList: true, subtree: true });
+    scanForCommentsAndPosts();
   }
 
   // --- Avvio ----------------------------------------------------------------
@@ -625,6 +814,6 @@
     const profileKeyToBlock = decodeURIComponent(initialHash.slice(AUTO_BLOCK_HASH_PREFIX.length));
     onDocumentReady(() => runAutoBlockFlow(profileKeyToBlock));
   } else {
-    onDocumentReady(startWatchingForComments);
+    onDocumentReady(startWatchingForCommentsAndPosts);
   }
 })();
