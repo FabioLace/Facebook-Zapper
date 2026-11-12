@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Facebook Zapper
 // @namespace    fabio.facebook-zap-block
-// @version      1.11.0
+// @version      1.12.0
 // @description  Aggiunge un pulsante ⚡ accanto all'autore di ogni commento e di ogni post (feed e ricerche): un clic e il profilo viene bloccato in una scheda in background.
 // @match        https://www.facebook.com/*
 // @grant        GM_openInTab
@@ -384,10 +384,27 @@
   }
 
   /**
-   * Il post da nascondere: l'unità marcata del feed se c'è, altrimenti il figlio diretto di role="feed"
-   * (i risultati di ricerca non hanno né role="article" né aria-posinset).
+   * Il post è l'elemento etichettato dall'intestazione dell'autore: come il commento ha
+   * aria-label="Commento di …", il post ha aria-labelledby con l'id dell'h3/h4 che contiene il nome.
+   * Vale per feed, sponsorizzati e ricerche, dove non ci sono né aria-posinset né role="feed".
    */
-  function resolvePostContainer(postElement) {
+  function findPostContainerLabelledByAuthorHeading(postAuthorLink) {
+    for (let headingCandidate = postAuthorLink; headingCandidate && headingCandidate !== document.body; headingCandidate = headingCandidate.parentElement) {
+      if (!headingCandidate.id) continue;
+      const labelledPostContainer = headingCandidate.closest(`[aria-labelledby~="${CSS.escape(headingCandidate.id)}"]`);
+      if (labelledPostContainer) return labelledPostContainer;
+    }
+    return null;
+  }
+
+  /**
+   * Il post da nascondere: l'elemento etichettato dall'intestazione dell'autore, altrimenti l'unità
+   * marcata del feed, altrimenti il figlio diretto di role="feed".
+   */
+  function resolvePostContainer(postElement, postAuthorLink) {
+    const postContainerLabelledByAuthor = findPostContainerLabelledByAuthorHeading(postAuthorLink);
+    if (postContainerLabelledByAuthor) return postContainerLabelledByAuthor;
+
     const markedFeedUnit = postElement.closest('[aria-posinset]');
     if (markedFeedUnit) return markedFeedUnit;
 
@@ -755,7 +772,7 @@
     if (!postAuthorLink) return;
     actionsButton.setAttribute(PROCESSED_POST_ACTIONS_MARKER_ATTRIBUTE, 'true');
 
-    const postContainer = resolvePostContainer(actionsButton) || postAuthorLink.parentElement;
+    const postContainer = resolvePostContainer(actionsButton, postAuthorLink) || postAuthorLink.parentElement;
     if (postContainer.closest(`[${INCINERATED_COMMENT_MARKER_ATTRIBUTE}]`)) return;
     if (postContainer.querySelector(`[${POST_ZAP_BUTTON_MARKER_ATTRIBUTE}]`)) return;
 
