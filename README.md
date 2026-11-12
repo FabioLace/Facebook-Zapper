@@ -2,7 +2,7 @@
   <h1>Facebook Zapper</h1>
   <p>
     <img src="https://img.shields.io/badge/Facebook-Web-1877F2?style=flat&logo=facebook&logoColor=white" alt="Facebook" />
-    <img src="https://img.shields.io/badge/Tampermonkey-Userscript_1.11.0-00485B?style=flat&logo=tampermonkey&logoColor=white" alt="Tampermonkey" />
+    <img src="https://img.shields.io/badge/Tampermonkey-Userscript_1.12.0-00485B?style=flat&logo=tampermonkey&logoColor=white" alt="Tampermonkey" />
     <img src="https://img.shields.io/badge/JavaScript-ES2020+-F7DF1E?style=flat&logo=javascript&logoColor=white" alt="JavaScript" />
   </p>
 </div>
@@ -126,7 +126,7 @@ I post vengono riconosciuti come i commenti, partendo da un'aria-label che conti
 1. Si cercano i pulsanti "…" con aria-label che inizia con uno dei `POST_ACTIONS_ARIA_LABEL_PREFIXES` (ad esempio "Azioni per questo post di Mario Rossi") e si legge il nome dopo il prefisso.
 2. Risalendo dal "…" si cerca il primo link il cui testo è esattamente quel nome e che punta a un profilo valido: è il nome nell'intestazione, non un "è con …" o una menzione.
 3. Il ⚡ viene inserito subito dopo quel link. Il "…" viene marcato come processato solo quando il link è stato trovato, perché l'intestazione può arrivare dopo.
-4. Il contenitore da nascondere è l'unità del feed (`[aria-posinset]`) se c'è, altrimenti il figlio diretto di `[role="feed"]`, che nei risultati di ricerca è il risultato intero.
+4. Il contenitore da nascondere è l'elemento etichettato dall'intestazione dell'autore: quello con `aria-labelledby` che contiene l'id dell'`h3`/`h4` del nome. Vale per i post normali, per gli sponsorizzati e per i risultati di ricerca. In mancanza si usa l'unità del feed (`[aria-posinset]`), poi il figlio diretto di `[role="feed"]`.
 
 Per i post il cui "…" non viene riconosciuto resta un ripiego basato sui contenitori (`[aria-posinset]`, `[role="article"]`) e sui link dell'intestazione.
 
